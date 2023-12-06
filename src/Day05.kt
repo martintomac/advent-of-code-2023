@@ -1,3 +1,5 @@
+import kotlin.streams.asStream
+
 fun main() {
 
     fun parseSeeds(seedsLine: String) =
@@ -9,7 +11,10 @@ fun main() {
         val destination: Long,
         val source: Long,
         val length: Long,
-    )
+    ) {
+        val sourceRange = source..<(source + length)
+        val delta = destination - source
+    }
 
     fun parseMapping(it: String): Mapping {
         val (destination, source, length) = it.split(" +".toRegex())
@@ -23,8 +28,8 @@ fun main() {
         val mappings = groupLines.drop(1)
             .map { parseMapping(it) }
         return { value ->
-            mappings.find { value in (it.source..<(it.source + it.length)) }
-                ?.let { it.destination + value - it.source }
+            mappings.find { value in it.sourceRange }
+                ?.let { value + it.delta }
                 ?: value
         }
     }
@@ -65,19 +70,24 @@ fun main() {
         val temperatureToHumidityMap = parseAsMap(grouped.findGroupLinesByName("temperature-to-humidity")!!)
         val humidityToLocationMap = parseAsMap(grouped.findGroupLinesByName("humidity-to-location")!!)
 
-        val mapping = seedToSoilMap
-            .andThen(soilToFertilizerMap)
-            .andThen(fertilizerToWaterMap)
-            .andThen(waterToLightMap)
-            .andThen(lightToTemperatureMap)
-            .andThen(temperatureToHumidityMap)
-            .andThen(humidityToLocationMap)
-
         return parseSeeds(grouped.findGroupLinesByName("seeds")!!.first())
             .chunked(2)
             .asSequence()
             .flatMap { (start, length) -> (start..<(start + length)) }
-            .minOfOrNull { mapping(it) }!!
+            .asStream()
+            .parallel()
+            .mapToLong { seed ->
+                val soil = seedToSoilMap(seed)
+                val fertilizer = soilToFertilizerMap(soil)
+                val water = fertilizerToWaterMap(fertilizer)
+                val light = waterToLightMap(water)
+                val temperature = lightToTemperatureMap(light)
+                val humidity = temperatureToHumidityMap(temperature)
+                val location = humidityToLocationMap(humidity)
+                location
+            }
+            .min()
+            .orElseThrow()
     }
 
     // test if implementation meets criteria from the description, like:
@@ -100,4 +110,3 @@ fun <T> List<T>.groupRuns(splitPredicate: (T) -> Boolean): List<List<T>> =
         acc
     }
 
-fun <T, I, R> ((T) -> I).andThen(func: (I) -> R): (T) -> R = { func(this(it)) }
